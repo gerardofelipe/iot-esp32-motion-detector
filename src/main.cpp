@@ -1,124 +1,68 @@
-#include <WiFi.h>
-#include <PubSubClient.h>
-#include <Wire.h>
 #include "config.h"
-
-WiFiClient espClient;
-PubSubClient client(espClient);
-long lastMsg = 0;
-char msg[50];
-int value = 0;
+#include <BlynkSimpleEsp32.h>
 
 const int ledPin = 27;
-// const int sensorPins [] = {26,25};
-const int sensorPins [] = {26};
-int state = LOW;
+const int sensorPins[] = {26};
 
-void setup_wifi() {
-  delay(10);
-  
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(WIFI_SSID);
+BlynkTimer timer;
+int detectionState = LOW;
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  digitalWrite(LED_BUILTIN, HIGH);
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+BLYNK_CONNECTED() {
+    Blynk.syncVirtual(V0);
+    Blynk.virtualWrite(V0, HIGH);
+    Blynk.syncVirtual(V1);
+    Blynk.virtualWrite(V1, detectionState);
 }
 
-void callback(char* topic, byte* message, unsigned int length) {
-  Serial.print("Message arrived on topic: ");
-  Serial.print(topic);
-  Serial.print(". Message: ");
-  String messageTemp;
-  
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)message[i]);
-    messageTemp += (char)message[i];
-  }
-  Serial.println();
-
-  if (String(topic) == "esp32/output") {
-    Serial.print("Changing output to ");
-    if(messageTemp == "on"){
-      Serial.println("on");
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
-    else if(messageTemp == "off"){
-      Serial.println("off");
-      digitalWrite(LED_BUILTIN, LOW);
-    }
-  }
-}
-
-void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-  
-    // if (client.connect("ESP32Client", MQTT_USER, MQTT_PASSWORD)) {
-    if (client.connect("ESP32Client")) {
-      Serial.println("connected");
-      client.subscribe("esp32/output");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
-    }
-  }
+BLYNK_WRITE(V0) {
+    int value = param.asInt();
+    digitalWrite(LED_BUILTIN, value);
 }
 
 int readSensors() {
-  for (int pin : sensorPins) {
-    if (digitalRead(pin) == HIGH) return HIGH;
-  }
+    return std::any_of(sensorPins, sensorPins + sizeof(sensorPins) / sizeof(sensorPins[0]), [](int pin) {
+        return digitalRead(pin) == HIGH;
+    })
+               ? HIGH
+               : LOW;
+}
 
-  return LOW;
+void checkSensors() {
+    int value = readSensors();
+
+    if (value == detectionState) {
+        // nothing to do here
+        return;
+    }
+
+    detectionState = value;
+
+    digitalWrite(ledPin, value);
+    Blynk.virtualWrite(V1, value);
+
+    if (value == HIGH) {
+        Serial.println("Motion detected!");
+    } else {
+        Serial.println("Motion Detection ended!");
+    }
 }
 
 void setup() {
-  Serial.begin(115200);
+    Serial.begin(115200);
 
-  setup_wifi();
+    Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD);
 
-  client.setServer(MQTT_SERVER, MQTT_PORT);
-  client.setCallback(callback);
+    pinMode(LED_BUILTIN, OUTPUT);
+    pinMode(ledPin, OUTPUT);
+    for (int pin : sensorPins) {
+        pinMode(pin, INPUT);
+    }
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(ledPin, OUTPUT);
-
-  for (int pin : sensorPins) {
-    pinMode(pin, INPUT);
-  }
+    // Setup a function to be called every 100 ms
+    timer.setInterval(100L, checkSensors);
 }
 
 void loop() {
-  if (!client.connected()) reconnect();
-
-  int val = readSensors();
-
-  client.loop();
-
-  if (val == state) return; // nothing to do here
-
-  state = val;
-  digitalWrite(ledPin, val);
-
-  if (val == HIGH) {
-      Serial.println("Motion detected!");
-      client.publish("esp32/motion", "1");
-  } else {
-      Serial.println("Motion Detection ended!");
-      client.publish("esp32/motion", "0");
-  }
+    Blynk.run();
+    timer.run();
 }
