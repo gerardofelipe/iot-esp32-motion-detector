@@ -2,6 +2,10 @@
 
 This project uses an ESP32 microcontroller to detect motion using one or more sensors and publish the results to an MQTT broker. The code is written in C++ using the Arduino framework and PlatformIO.
 
+An example of use with a [Node-RED](https://nodered.org/) workspace:
+
+![A screenshot of a Node-RED workspace example](./node-red-screenshot.jpg "Node-RED workspace example")
+
 ## Dependencies
 
 This project depends on the following libraries:
